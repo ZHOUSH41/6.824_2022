@@ -27,6 +27,7 @@ func Map(filename string, contents string) []mr.KeyValue {
 
 	kva := []mr.KeyValue{}
 	for _, w := range words {
+		// 只映射了1
 		kv := mr.KeyValue{w, "1"}
 		kva = append(kva, kv)
 	}
@@ -40,5 +41,6 @@ func Map(filename string, contents string) []mr.KeyValue {
 //
 func Reduce(key string, values []string) string {
 	// return the number of occurrences of this word.
+	// 这里只是取了len
 	return strconv.Itoa(len(values))
 }
