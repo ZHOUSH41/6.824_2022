@@ -145,14 +145,14 @@ func (c *Coordinator) AssignTask(args *ExampleArgs, replay *Task) error {
 	defer mu.Unlock()
 	if len(c.TaskQueue) > 0 {
 		// 有就发送任务
-		*replay = *<-c.TaskQueue
+		*replay = *<-c.TaskQueue //  取出一个task, 并赋值给replay
 		c.TaskMeta[replay.TaskNumber].TaskStatus = InProgress
 		c.TaskMeta[replay.TaskNumber].StartTime = time.Now()
 	} else if c.CoordinatorPhase == Exit {
-		replay = &Task{TaskState: Exit}
+		*replay = Task{TaskState: Exit}
 	} else {
 		// 没有任务就waitting
-		replay = &Task{TaskState: Wait}
+		*replay = Task{TaskState: Wait}
 	}
 	return nil
 }
@@ -225,7 +225,7 @@ func (c *Coordinator) catchTimeout() {
 			return
 		}
 		for _, cTask := range c.TaskMeta {
-			if cTask.TaskStatus == InProgress && time.Now().Sub(cTask.StartTime) > 10*time.Second {
+			if cTask.TaskStatus == InProgress && time.Since(cTask.StartTime) > 10*time.Second {
 				c.TaskQueue <- cTask.TaskReference
 				cTask.TaskStatus = Idle
 			}

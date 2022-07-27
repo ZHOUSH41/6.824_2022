@@ -223,7 +223,6 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
 		log.Fatal("dialing:", err)
-		// Coordinator结束进程，退出worker
 		return false
 	}
 	defer c.Close()
