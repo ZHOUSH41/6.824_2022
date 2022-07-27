@@ -81,13 +81,13 @@ func mapper(task *Task, mapf func(string, string) []KeyValue) {
 	// get file content
 	content, err := ioutil.ReadFile(task.Input)
 	if err != nil {
-		log.Fatalf("failed to read file: %v, err: %v", task.Input, err)
+		log.Fatal("failed to read file: "+task.Input, err)
 	}
 	// 将content交给mapf函数，得到map的结果
 	intermediates := mapf(task.Input, string(content))
 
-	// 拿到task之后，根据task的state，map task交给mapper， reduce task交给reducer
-	// 额外加两个state，让 worker 等待 或者 直接退出
+	//缓存后的结果会写到本地磁盘，并切成R份
+	//切分方式是根据key做hash
 	buffer := make([][]KeyValue, task.NReducer)
 	for _, intermediate := range intermediates {
 		slot := ihash(intermediate.Key) % task.NReducer
@@ -142,7 +142,7 @@ func reducer(task *Task, reducef func(string, []string) string) {
 func TaskCompleted(task *Task) {
 	// rpc
 	reply := ExampleReply{}
-	call("Coordinator.TaskComplete", task, &reply)
+	call("Coordinator.TaskCompleted", task, &reply)
 }
 
 func writeToLocalFile(x int, y int, kvs []KeyValue) string {
@@ -223,6 +223,8 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
 		log.Fatal("dialing:", err)
+		// Coordinator结束进程，退出worker
+		return false
 	}
 	defer c.Close()
 

@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-type CoordinatorStatus int
+type CoordinatorTaskStatus int
 
 const (
-	Idle CoordinatorStatus = iota
+	Idle CoordinatorTaskStatus = iota
 	InProgress
 	Completed
 )
@@ -28,7 +28,7 @@ const (
 )
 
 type CoorinatorTask struct {
-	TaskStatus    CoordinatorStatus
+	TaskStatus    CoordinatorTaskStatus
 	StartTime     time.Time
 	TaskReference *Task
 }
@@ -140,12 +140,12 @@ func (c *Coordinator) createMapTask() {
 }
 
 func (c *Coordinator) AssignTask(args *ExampleArgs, replay *Task) error {
+	// assignTask就看看自己queue里面还有没有task
 	mu.Lock()
 	defer mu.Unlock()
 	if len(c.TaskQueue) > 0 {
 		// 有就发送任务
 		*replay = *<-c.TaskQueue
-		// 记录启动task的时间
 		c.TaskMeta[replay.TaskNumber].TaskStatus = InProgress
 		c.TaskMeta[replay.TaskNumber].StartTime = time.Now()
 	} else if c.CoordinatorPhase == Exit {
@@ -157,15 +157,15 @@ func (c *Coordinator) AssignTask(args *ExampleArgs, replay *Task) error {
 	return nil
 }
 
-func (c *Coordinator) TaskComplete(task *Task, reply *ExampleReply) error {
+func (c *Coordinator) TaskCompleted(task *Task, reply *ExampleReply) error {
 	// update task status
 	mu.Lock()
+	defer mu.Unlock()
 	if task.TaskState != c.CoordinatorPhase || c.TaskMeta[task.TaskNumber].TaskStatus == Completed {
 		return nil
 	}
 	c.TaskMeta[task.TaskNumber].TaskStatus = Completed
-	mu.Unlock()
-	defer c.processTaskResult(task)
+	go c.processTaskResult(task)
 	return nil
 }
 
@@ -174,6 +174,7 @@ func (c *Coordinator) processTaskResult(task *Task) {
 	defer mu.Unlock()
 	switch task.TaskState {
 	case Map:
+		//收集intermediate信息
 		for reduceTaskID, filePath := range task.Intermediates {
 			c.Intermediates[reduceTaskID] = append(c.Intermediates[reduceTaskID], filePath)
 		}
@@ -187,6 +188,15 @@ func (c *Coordinator) processTaskResult(task *Task) {
 			c.CoordinatorPhase = Exit
 		}
 	}
+}
+
+func (c *Coordinator) allTaskDone() bool {
+	for _, v := range c.TaskMeta {
+		if v.TaskStatus != Completed {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Coordinator) createReduceTask() {
@@ -206,15 +216,6 @@ func (c *Coordinator) createReduceTask() {
 	}
 }
 
-func (c *Coordinator) allTaskDone() bool {
-	for _, v := range c.TaskMeta {
-		if v.TaskStatus != Completed {
-			return false
-		}
-	}
-	return true
-}
-
 func (c *Coordinator) catchTimeout() {
 	for {
 		time.Sleep(5 * time.Second)
@@ -224,13 +225,13 @@ func (c *Coordinator) catchTimeout() {
 			return
 		}
 		for _, cTask := range c.TaskMeta {
-			if cTask.TaskStatus == InProgress && time.Now().Sub(cTask.StartTime) > time.Second*10 {
+			if cTask.TaskStatus == InProgress && time.Now().Sub(cTask.StartTime) > 10*time.Second {
 				c.TaskQueue <- cTask.TaskReference
 				cTask.TaskStatus = Idle
 			}
 		}
+		mu.Unlock()
 	}
-	mu.Unlock()
 }
 
 func max(a, b int) int {
