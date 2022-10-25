@@ -64,7 +64,8 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-	state NodeState
+	applyCh chan ApplyMsg
+	state   NodeState
 
 	// persist state on all servers
 	currentTerm int
@@ -89,6 +90,7 @@ func (rf *Raft) GetState() (int, bool) {
 	// Your code here (2A).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	// DPrintf("{Node %v} state %v", rf.me, rf.state)
 	return rf.currentTerm, rf.state == Leader
 }
 
@@ -166,6 +168,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	reply.Term = rf.currentTerm
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && uptoDate {
 		reply.VoteGranted = true
+		// 投票之后不能再投了
+		rf.votedFor = args.CandidateId
 		// 重置选举超时时间
 		rf.resetElectionTimer()
 		return
@@ -287,7 +291,7 @@ func (rf *Raft) ticker() {
 		// time.Sleep().
 		rf.mu.Lock()
 		if rf.state == Leader {
-			rf.appendEntriesRPCL(true)
+			rf.appendEntriesL(true)
 		}
 		if time.Now().After(rf.electionTime) {
 			rf.leaderElectionL()
@@ -297,7 +301,7 @@ func (rf *Raft) ticker() {
 	}
 }
 
-func (rf *Raft) appendEntriesRPCL(heartbeat bool) {
+func (rf *Raft) appendEntriesL(heartbeat bool) {
 	lastLog := rf.getLastLogL()
 	for peer := range rf.peers {
 		if peer == rf.me {
@@ -317,12 +321,12 @@ func (rf *Raft) appendEntriesRPCL(heartbeat bool) {
 				LeaderCommit: rf.commitIndex,
 			}
 			copy(args.Entries, rf.logs[nextIndex:])
-			go rf.appendEntriesReq(peer, &args)
+			go rf.leaderSendEntries(peer, &args)
 		}
 	}
 }
 
-func (rf *Raft) appendEntriesReq(peer int, args *AppendEntriesArgs) {
+func (rf *Raft) leaderSendEntries(peer int, args *AppendEntriesArgs) {
 	var reply AppendEntriesReply
 	ok := rf.sendAppendEntries(peer, args, &reply)
 	if !ok {
@@ -418,10 +422,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 }
 
 func (rf *Raft) leaderElectionL() {
-	args := rf.genVoteArgsL()
-	DPrintf("{Node %v} starts election with RequestVoteRequest %v", rf.me, args)
+	// rules for servers at for followers
+	rf.state = Candidate
 	rf.currentTerm += 1
 	rf.votedFor = rf.me
+	args := rf.genVoteArgsL()
+	DPrintf("{Node %v} starts election with RequestVoteRequest %v", rf.me, args)
 	rf.resetElectionTimer()
 	votes := 1
 	for peer := range rf.peers {
@@ -432,9 +438,12 @@ func (rf *Raft) leaderElectionL() {
 					rf.mu.Lock()
 					defer rf.mu.Unlock()
 					DPrintf("{Node %v} receives RequestVoteResponse %v from {Node %v} after sending RequestVoteRequest %v in term %v", rf.me, reply, peer, args, rf.currentTerm)
+					// DPrintf("{Node %v} state %v term %v", rf.me, rf.state, rf.currentTerm)
 					if rf.currentTerm == args.Term && rf.state == Candidate {
+						// DPrintf("join")
 						if reply.VoteGranted {
 							votes += 1
+							// DPrintf("{Node %v} votes %v", rf.me, votes)
 							if votes > len(rf.peers)/2 {
 								DPrintf("{Node %v} receives majority votes in term %v", rf.me, rf.currentTerm)
 								rf.becomeLeaderL()
@@ -455,8 +464,9 @@ func (rf *Raft) becomeLeaderL() {
 		rf.nextIndex[i] = rf.getLastLogL().Index + 1
 		rf.matchIndex[i] = 0
 	}
+	rf.state = Leader
 	rf.resetElectionTimer()
-	rf.appendEntriesRPCL(true)
+	rf.appendEntriesL(true)
 }
 
 //
@@ -478,6 +488,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
+	rf.applyCh = applyCh
 	rf.state = Follower
 	rf.currentTerm = 0
 	rf.logs = make([]Entry, 1)
