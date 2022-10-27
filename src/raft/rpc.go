@@ -1,5 +1,7 @@
 package raft
 
+import "fmt"
+
 type AppendEntriesArgs struct {
 	Term         int
 	LeaderId     int
@@ -9,11 +11,19 @@ type AppendEntriesArgs struct {
 	LeaderCommit int
 }
 
+func (args AppendEntriesArgs) String() string {
+	return fmt.Sprintf("{Term:%v,LeaderId:%v,PrevLogIndex:%v,PrevLogTerm:%v,LeaderCommit:%v,Entries:%v}", args.Term, args.LeaderId, args.PrevLogIndex, args.PrevLogTerm, args.LeaderCommit, args.Entries)
+}
+
 type AppendEntriesReply struct {
 	Term          int
 	Success       bool
 	ConflictTerm  int
 	ConflictIndex int
+}
+
+func (reply AppendEntriesReply) String() string {
+	return fmt.Sprintf("{Term:%v,Success:%v,ConflictIndex:%v,ConflictTerm:%v}", reply.Term, reply.Success, reply.ConflictIndex, reply.ConflictTerm)
 }
 
 //

@@ -252,13 +252,27 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.state != Leader {
+		return -1, -1, false
+	}
 
+	newLog := rf.appendNewEntryL(command)
+	DPrintf("{Node %v} receives a new command[%v] to replicate in term %v", rf.me, newLog, rf.currentTerm)
+	rf.appendEntriesL(false)
+	return newLog.Index, newLog.Term, true
 	// Your code here (2B).
 
-	return index, term, isLeader
+}
+
+func (rf *Raft) appendNewEntryL(command interface{}) Entry {
+	lastLog := rf.getLastLogL()
+	newLog := Entry{rf.currentTerm, lastLog.Index + 1, command}
+	rf.logs = append(rf.logs, newLog)
+	rf.matchIndex[rf.me], rf.nextIndex[rf.me] = newLog.Index, newLog.Index+1
+	rf.persist()
+	return newLog
 }
 
 //
@@ -298,7 +312,7 @@ func (rf *Raft) ticker() {
 			rf.leaderElectionL()
 		}
 		rf.mu.Unlock()
-		time.Sleep(time.Duration(60) * time.Millisecond)
+		time.Sleep(time.Duration(125) * time.Millisecond)
 	}
 }
 
@@ -328,6 +342,7 @@ func (rf *Raft) applier() {
 		rf.mu.Lock()
 		DPrintf("{Node %v} applies entries %v-%v in term %v", rf.me, rf.lastApplied, commitIndex, rf.currentTerm)
 		rf.lastApplied = Max(rf.lastApplied, commitIndex)
+		rf.mu.Unlock()
 	}
 }
 
@@ -341,7 +356,6 @@ func (rf *Raft) appendEntriesL(heartbeat bool) {
 		// rules for leader 3
 		if lastLog.Index >= rf.nextIndex[peer] || heartbeat {
 			prevLogIndex := rf.nextIndex[peer] - 1
-			DPrintf("nextIndex %v, logs length: %v", prevLogIndex, len(rf.logs))
 			firstIndex := rf.getFirstLogL().Index
 			entries := make([]Entry, len(rf.logs[prevLogIndex+1-firstIndex:]))
 			copy(entries, rf.logs[prevLogIndex+1-firstIndex:])
@@ -558,7 +572,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf *Raft) resetElectionTimer() {
 	t := time.Now()
-	electionTimeOut := time.Duration(150+rand.Intn(150)) * time.Millisecond
+	electionTimeOut := time.Duration(1000+rand.Intn(1000)) * time.Millisecond
 	rf.electionTime = t.Add(electionTimeOut)
 }
 
