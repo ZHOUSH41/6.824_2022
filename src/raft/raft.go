@@ -376,7 +376,11 @@ func (rf *Raft) appendEntriesL(heartbeat bool) {
 		// rules for leader 3
 		if lastLog.Index >= rf.nextIndex[peer] || heartbeat {
 			prevLogIndex := rf.nextIndex[peer] - 1
+			if prevLogIndex <= 0 {
+				prevLogIndex = 0
+			}
 			firstIndex := rf.getFirstLogL().Index
+			DPrintf("{Node %v}, peer %v prevLogIndex %v, firstIndex %v", rf.me, peer, prevLogIndex, firstIndex)
 			entries := make([]Entry, len(rf.logs[prevLogIndex+1-firstIndex:]))
 			copy(entries, rf.logs[prevLogIndex+1-firstIndex:])
 			args := AppendEntriesArgs{
