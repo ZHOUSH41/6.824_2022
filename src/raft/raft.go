@@ -18,13 +18,13 @@ package raft
 //
 
 import (
-	//	"bytes"
+	"bytes"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	//	"6.824/labgob"
+	"6.824/labgob"
 	"6.824/labrpc"
 )
 
@@ -109,6 +109,13 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.logs)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -131,6 +138,17 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var currentTerm int
+	var votedFor int
+	var logs []Entry
+	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&logs) != nil {
+		DPrintf("{Node %v} restores persisted state failed", rf.me)
+	}
+	rf.currentTerm, rf.votedFor, rf.logs = currentTerm, votedFor, logs
+	// TODO: lastApplied, commitIndex
+	// rf.lastApplied, rf.commitIndex = rf.logs[0].Index, rf.logs[0].Index
 }
 
 //
@@ -160,6 +178,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 	// rules for all servers
 	if args.Term > rf.currentTerm {
 		rf.setNewTermL(args.Term)
@@ -182,6 +201,7 @@ func (rf *Raft) setNewTermL(term int) {
 	rf.currentTerm = term
 	rf.state = Follower
 	rf.votedFor = -1
+	rf.persist()
 }
 
 // invoke by vote RPC
@@ -384,6 +404,7 @@ func (rf *Raft) leaderSendEntries(peer int, args *AppendEntriesArgs) {
 
 	if reply.Term > rf.currentTerm {
 		rf.setNewTermL(reply.Term)
+		rf.persist()
 		return
 	}
 
@@ -396,6 +417,7 @@ func (rf *Raft) leaderSendEntries(peer int, args *AppendEntriesArgs) {
 		} else {
 			if reply.Term > rf.currentTerm {
 				rf.setNewTermL(args.Term)
+				rf.persist()
 			} else if reply.Term == rf.currentTerm {
 				rf.nextIndex[peer] = reply.ConflictIndex
 				if reply.ConflictTerm != -1 {
@@ -423,6 +445,7 @@ func (rf *Raft) sendAppendEntries(peer int, args *AppendEntriesArgs, reply *Appe
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} before processing AppendEntriesRequest %v and reply AppendEntriesResponse %v",
 		rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLogL(), rf.getLastLogL(), args, reply)
 
@@ -491,6 +514,7 @@ func (rf *Raft) leaderElectionL() {
 	args := rf.genVoteArgsL()
 	DPrintf("{Node %v} starts election with RequestVoteRequest %v", rf.me, args)
 	rf.resetElectionTimer()
+	rf.persist()
 	votes := 1
 	for peer := range rf.peers {
 		if peer != rf.me {
@@ -509,10 +533,12 @@ func (rf *Raft) leaderElectionL() {
 							if votes > len(rf.peers)/2 {
 								DPrintf("{Node %v} receives majority votes in term %v", rf.me, rf.currentTerm)
 								rf.becomeLeaderL()
+								rf.persist()
 							}
 						} else if reply.Term > rf.currentTerm {
 							DPrintf("{Node %v} finds a new leader {Node %v} with term %v and steps down in term %v", rf.me, peer, reply.Term, rf.currentTerm)
 							rf.setNewTermL(reply.Term)
+							rf.persist()
 						}
 					}
 				}
