@@ -528,6 +528,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term > rf.currentTerm {
 		rf.setNewTermL(args.Term)
 	}
+	// candidate rule 3
+	rf.state = Follower
 
 	rf.resetElectionTimer()
 
@@ -707,7 +709,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf *Raft) resetElectionTimer() {
 	t := time.Now()
-	electionTimeOut := time.Duration(1000+rand.Intn(1000)) * time.Millisecond
+	electionTimeOut := time.Duration(800+rand.Intn(800)) * time.Millisecond
 	rf.electionTime = t.Add(electionTimeOut)
 }
 
