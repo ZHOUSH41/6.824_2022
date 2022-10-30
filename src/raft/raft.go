@@ -150,7 +150,7 @@ func (rf *Raft) readPersist(data []byte) {
 		DPrintf("{Node %v} restores persisted state failed", rf.me)
 	}
 	rf.currentTerm, rf.votedFor, rf.logs = currentTerm, votedFor, logs
-	// TODO: lastApplied, commitIndex, 对2D 日志压缩来说必要的
+	// TODO: lastApplied, commitIndex, 对2D 日志压缩来说必要的, first log是dummy log
 	rf.lastApplied, rf.commitIndex = rf.logs[0].Index, rf.logs[0].Index
 }
 
@@ -353,7 +353,7 @@ func (rf *Raft) killed() bool {
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
 func (rf *Raft) ticker() {
-	for rf.killed() == false {
+	for !rf.killed() {
 
 		// Your code here to check if a leader election should
 		// be started and to randomize sleeping time using
@@ -473,7 +473,6 @@ func (rf *Raft) leaderSendEntries(peer int, args *AppendEntriesArgs) {
 
 	if reply.Term > rf.currentTerm {
 		rf.setNewTermL(reply.Term)
-		rf.persist()
 		return
 	}
 
@@ -695,6 +694,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
+	lastLog := rf.getLastLogL()
+	for i := 0; i < len(peers); i++ {
+		rf.matchIndex[i], rf.nextIndex[i] = 0, lastLog.Index+1
+	}
 	// start ticker goroutine to start elections
 	go rf.ticker()
 
