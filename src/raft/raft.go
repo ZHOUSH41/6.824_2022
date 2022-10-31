@@ -485,7 +485,6 @@ func (rf *Raft) leaderSendEntries(peer int, args *AppendEntriesArgs) {
 		} else {
 			if reply.Term > rf.currentTerm {
 				rf.setNewTermL(args.Term)
-				rf.persist()
 			} else if reply.Term == rf.currentTerm {
 				rf.nextIndex[peer] = reply.ConflictIndex
 				if reply.ConflictTerm != -1 {
@@ -709,7 +708,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf *Raft) resetElectionTimer() {
 	t := time.Now()
-	electionTimeOut := time.Duration(800+rand.Intn(800)) * time.Millisecond
+	electionTimeOut := time.Duration(650+rand.Intn(650)) * time.Millisecond
 	rf.electionTime = t.Add(electionTimeOut)
 }
 
